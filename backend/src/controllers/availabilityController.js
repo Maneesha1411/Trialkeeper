@@ -147,31 +147,103 @@ const deleteOwnFutureAvailability = async (req, res) => {
     });
   }
 
+  let client;
+  let clientError;
+  let transactionStarted = false;
+
   try {
-    const result = await pool.query(
-      `DELETE FROM interviewer_availability
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    const slotResult = await client.query(
+      `SELECT id
+       FROM interviewer_availability
        WHERE id = $1
          AND interviewer_id = $2
-         AND start_time > CURRENT_TIMESTAMP
-       RETURNING id`,
+         AND start_time > clock_timestamp()
+       FOR UPDATE`,
       [id, req.user.userId]
     );
 
-    if (result.rows.length === 0) {
+    if (slotResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(404).json({
         message: "Future availability slot not found.",
       });
     }
 
+    const activeHoldResult = await client.query(
+      `SELECT availability_id
+       FROM availability_holds
+       WHERE availability_id = $1
+         AND expires_at > clock_timestamp()`,
+      [id]
+    );
+
+    const bookingResult = await client.query(
+      `SELECT availability_id
+       FROM interview_bookings
+       WHERE availability_id = $1`,
+      [id]
+    );
+
+    if (activeHoldResult.rows.length > 0 || bookingResult.rows.length > 0) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        message: "Availability with an active hold or confirmed booking cannot be deleted.",
+      });
+    }
+
+    const result = await client.query(
+      `DELETE FROM interviewer_availability
+       WHERE id = $1
+         AND interviewer_id = $2
+       RETURNING id`,
+      [id, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(404).json({
+        message: "Future availability slot not found.",
+      });
+    }
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+
     return res.status(200).json({
       message: "Availability deleted successfully.",
     });
   } catch (error) {
-    console.error("Availability deletion error:", error.message);
+    if (transactionStarted) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        clientError = rollbackError;
+        console.error("Availability deletion rollback error:", rollbackError.code || "database error");
+      }
+    }
+
+    if (error.code === "23503") {
+      return res.status(409).json({
+        message: "Availability with a confirmed booking cannot be deleted.",
+      });
+    }
+
+    console.error("Availability deletion error:", error.code || "database error");
 
     return res.status(500).json({
       message: "Could not delete availability due to a server error.",
     });
+  } finally {
+    if (client) {
+      client.release(clientError);
+    }
   }
 };
 

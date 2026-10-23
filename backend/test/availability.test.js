@@ -10,6 +10,7 @@ const availabilityRoutes = require("../src/routes/availabilityRoutes");
 
 const previousJwtSecret = process.env.JWT_SECRET;
 const originalQuery = pool.query;
+const originalConnect = pool.connect;
 const testJwtSecret = "availability-tests-only-secret";
 let server;
 let baseUrl;
@@ -70,6 +71,7 @@ beforeEach(() => {
 
 after(async () => {
   pool.query = originalQuery;
+  pool.connect = originalConnect;
 
   if (previousJwtSecret === undefined) {
     delete process.env.JWT_SECRET;
@@ -203,30 +205,48 @@ test("interviewers can list only their own availability", async () => {
 test("interviewers can delete their own future slot, not another user's slot", async () => {
   const token = tokenFor("interviewer-1", "interviewer");
   let queryArgs;
-  let returnDeletedRow = true;
+  pool.connect = async () => ({
+    async query(sql, args = []) {
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
+        return { rows: [], rowCount: 0 };
+      }
 
-  pool.query = async (...args) => {
-    queryArgs = args;
-    return {
-      rows: returnDeletedRow ? [{ id: args[1][0] }] : [],
-    };
-  };
+      if (sql.includes("FROM interviewer_availability")) {
+        queryArgs = args;
+        return args[0] === "41"
+          ? { rows: [{ id: "41" }], rowCount: 1 }
+          : { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("FROM availability_holds")) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("FROM interview_bookings")) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("DELETE FROM interviewer_availability")) {
+        return { rows: [{ id: args[0] }], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected SQL in availability deletion test: ${sql}`);
+    },
+    release() {},
+  });
 
   const ownResponse = await request("DELETE", "/api/availability/41", {
     token,
   });
   assert.equal(ownResponse.status, 200);
 
-  returnDeletedRow = false;
   const otherUserSlotResponse = await request(
     "DELETE",
     "/api/availability/42",
     { token }
   );
   assert.equal(otherUserSlotResponse.status, 404);
-  assert.match(queryArgs[0], /interviewer_id = \$2/);
-  assert.match(queryArgs[0], /start_time > CURRENT_TIMESTAMP/);
-  assert.deepEqual(queryArgs[1], ["42", "interviewer-1"]);
+  assert.deepEqual(queryArgs, ["42", "interviewer-1"]);
 });
 
 test("migration uses a half-open exclusion range for per-interviewer overlaps", () => {

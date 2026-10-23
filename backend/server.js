@@ -1,6 +1,7 @@
 const authRoutes = require("./src/routes/authRoutes");
 const profileRoutes = require("./src/routes/profileRoutes");
 const availabilityRoutes = require("./src/routes/availabilityRoutes");
+const bookingRoutes = require("./src/routes/bookingRoutes");
 const express = require("express");
 require("dotenv").config();
 const pool = require("./src/config/db");
@@ -11,6 +12,7 @@ app.use(require("cors")());
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/availability", availabilityRoutes);
+app.use("/api/bookings", bookingRoutes);
 
 app.get("/health", async (req, res) => {
   try {
