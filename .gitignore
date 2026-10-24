@@ -147,3 +147,7 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+docs/trialkeeper_neon_schema.sql
+
+docs/SCHEMA_README.md
