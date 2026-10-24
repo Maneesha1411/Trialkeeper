@@ -16,6 +16,11 @@ const {
   updateRound,
   deleteRound,
 } = require("../controllers/eventConfigurationController");
+const {
+  getEventCandidates,
+  enrollCandidate,
+  removeCandidate,
+} = require("../controllers/eventEnrollmentController");
 
 const router = express.Router();
 
@@ -32,6 +37,13 @@ router.get("/:id/rounds", authorizeRoles("coordinator"), getRounds);
 router.post("/:id/rounds", authorizeRoles("coordinator"), createRound);
 router.patch("/:id/rounds/:roundId", authorizeRoles("coordinator"), updateRound);
 router.delete("/:id/rounds/:roundId", authorizeRoles("coordinator"), deleteRound);
+router.get("/:id/candidates", authorizeRoles("coordinator"), getEventCandidates);
+router.post("/:id/candidates", authorizeRoles("coordinator"), enrollCandidate);
+router.delete(
+  "/:id/candidates/:candidateId",
+  authorizeRoles("coordinator"),
+  removeCandidate
+);
 router.get("/:id", getEventById);
 router.post("/", authorizeRoles("coordinator"), createEvent);
 router.patch("/:id", authorizeRoles("coordinator"), updateEvent);
